@@ -6,3 +6,5 @@
 plots/*
 Analyses_files/*
 Analyses_cache/*
+greaterDataAmount.RData
+lesserDataAmount.RData
