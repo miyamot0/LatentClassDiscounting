@@ -1,0 +1,634 @@
+---
+title: "LCMM Demonstration"
+author: "demosthenes"
+date: "7/20/2021"
+output: html_document
+---
+
+```{r include=FALSE}
+set.seed(65535)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+
+library(gridExtra)
+library(lcmm)
+library(tidyverse)
+
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed,
+                      echo        = TRUE,
+                      fig.path    = "plots/",
+                      fig.ext     = "png")
+```
+
+## Low Magnitude Section
+
+```{r setup200, cache=TRUE, echo=FALSE}
+data <- read.csv("unrestricted_shawnpgilroy_2_14_2021_10_59_54.csv")
+
+data.select <- data %>%
+  filter(!is.na(DDisc_SV_1mo_200)) %>%
+  select(Subject, DDisc_SV_1mo_200:DDisc_AUC_40K)
+
+##### Re-map source data (raw) to long format
+sourceData.long.200 <- data.select %>%
+  select(Subject, 
+         DDisc_AUC_200,
+         DDisc_SV_1mo_200:DDisc_SV_10yr_200) %>%
+  gather(Delay, Value, DDisc_SV_1mo_200:DDisc_SV_10yr_200,
+         -Subject, -DDisc_AUC_200) %>%
+  mutate(
+    Delay = case_when(
+      stringr::str_detect(Delay, "1mo" ) ~ "30",
+      stringr::str_detect(Delay, "6mo" ) ~ "180",
+      stringr::str_detect(Delay, "1yr" ) ~ "365",
+      stringr::str_detect(Delay, "3yr" ) ~ as.character(365 * 3),
+      stringr::str_detect(Delay, "5yr" ) ~ as.character(365 * 5),
+      stringr::str_detect(Delay, "10yr") ~ as.character(365 * 10),
+      TRUE ~ Delay
+    ),
+    Delay = as.numeric(Delay)
+  )
+
+#' Perform Johnson & Bickel Screen
+#'
+#' This function applies the Johnson & Bickel screening criteria to included data series. The result of this procedure is a TRUE/FALSE response to one of two screening criteria. These are included by default in all model selection calls.
+#'
+#' @param dat data frame with X column and Y column (0 <= Y <= 1, NOTE capitalized letters)
+#' @param idCol string content identifying participants (e.g., idCol = "ids")
+#' @return A data frame of model screenings
+#' @author Shawn Gilroy <sgilroy1@lsu.edu>
+#' @return data frame of Screening Criteria
+#' @export
+johnsonBickelScreen <- function(dat, idCol = "id", yMax = 1) {
+
+  if (!idCol %in% colnames(dat)) {
+    stop("Id column not found, please check naming")
+  } else {
+    colnames(dat)[colnames(dat) == idCol] <- 'id'
+  }
+
+  newdat = dat
+
+  newdat$Y = newdat$Y/yMax
+
+  lengthReturn <- length(unique(newdat$id))
+
+  returnFrame <- data.frame(id = rep(NA, lengthReturn),
+                            C1 = rep(NA, lengthReturn),
+                            C2 = rep(NA, lengthReturn))
+
+  mIndex <- 1
+
+  for (i in unique(newdat$id)) {
+    subsetData <- newdat[dat$id == i,]
+
+    criteriaOne <- TRUE
+    criteriaTwo <- TRUE
+
+    subsetData <- subsetData[order(subsetData$X), ]
+
+    for (index in 2:length(subsetData$X)) {
+      prev = subsetData[index - 1, ]$Y
+      curr = subsetData[index, ]$Y
+
+      if ((curr - prev) > 0.2) {
+        criteriaOne = FALSE
+      }
+    }
+
+    prev <- subsetData[1, ]$Y
+    curr <- subsetData[length(subsetData$X), ]$Y
+
+    if ((prev - curr) < 0.1) {
+      criteriaTwo = FALSE
+    }
+
+    returnFrame[mIndex, ]$id <- i
+    returnFrame[mIndex, ]$C1 <- criteriaOne
+    returnFrame[mIndex, ]$C2 <- criteriaTwo
+
+    mIndex <- mIndex + 1
+
+  }
+
+  returnFrame
+}
+
+##### Draw up passing ids
+passing.200 <- sourceData.long.200 %>%
+  select(Subject, Delay, Value) %>%
+  rename(X = Delay,
+         Y = Value) %>%
+  johnsonBickelScreen(., id = 'Subject', yMax = 200) %>%
+  rename(`JB1_200` = C1,
+         `JB2_200` = C2) %>%
+  mutate(`JBAny_200` = ifelse(JB1_200 | JB2_200, TRUE, FALSE),
+         `JBBoth_200` = ifelse(JB1_200 & JB2_200, TRUE, FALSE)) %>%
+  rename(Subject = id)
+
+sourceData.long.200.pull <- sourceData.long.200 %>%
+  select(Subject, Delay, Value) %>%
+  arrange(Subject, Delay)
+
+```
+
+```{r lcmms200, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+
+gmm1 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random  = ~ 1 + Delay,
+             ng      = 1,
+             data    = sourceData.long.200.pull,
+             link    = "linear")
+
+gmm2 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 2,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm3 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 3,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm4 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 4,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm5 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 5,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm6 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 6,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm7 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 7,
+             data = sourceData.long.200.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+summarytable(gmm1, gmm2, gmm3, gmm4, gmm5, gmm6, gmm7,
+             which = c("G", "AIC"))
+
+summary(gmm7)
+
+```
+
+```{r jb200}
+
+passing.200 %>%
+  select(-c(Subject, JBBoth_200)) %>%
+  group_by(JB1_200, JB2_200) %>%
+  summarise(
+    Count = n(),
+    Total = length(unique(passing.200$Subject))
+  )
+
+```
+
+```{r lcmm200Plot, fig.width=9, fig.height=6, warning=FALSE, message=FALSE, echo=FALSE}
+
+plot(gmm7)
+
+pred = predictY(gmm7, newdata = sourceData.long.200.pull)
+
+Dels = c(30, 180, 365, 
+         (365 * 3), 
+         (365 * 5),
+         (365 * 10))
+
+preDF1 = data.frame(
+  ID    = pred$times,
+  Class = "1",
+  Y     = pred$pred[,1],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF2 = data.frame(
+  ID    = pred$times,
+  Class = "2",
+  Y     = pred$pred[,2],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF3 = data.frame(
+  ID    = pred$times,
+  Class = "3",
+  Y     = pred$pred[,3],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF4 = data.frame(
+  ID    = pred$times,
+  Class = "4",
+  Y     = pred$pred[,4],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF5 = data.frame(
+  ID    = pred$times,
+  Class = "5",
+  Y     = pred$pred[,5],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF6 = data.frame(
+  ID    = pred$times,
+  Class = "6",
+  Y     = pred$pred[,6],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF7 = data.frame(
+  ID    = pred$times,
+  Class = "7",
+  Y     = pred$pred[,7],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+plotDF = rbind(preDF1, preDF2, preDF3,
+               preDF4, preDF5, preDF6, 
+               preDF7)
+
+p1 = ggplot(plotDF, aes(Time, Y, color = Class)) +
+  geom_point() +
+  geom_line() +
+  #scale_x_log10() +
+  #scale_y_log10() +
+  ylab("Indifference Points") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.position = "bottom") +
+  guides(color = guide_legend(nrow  = 2, byrow = TRUE))
+
+p2 = gmm7$pprob %>%
+  merge(., passing.200) %>%
+  select(-c(prob1:prob7), -JBAny_200) %>%
+  mutate(class = as.factor(class)) %>%
+  gather(Criteria, Logical, -Subject, -class) %>%
+  group_by(class, Criteria) %>%
+  summarise(
+    Passing  = sum(Logical == TRUE),
+    Failing  = sum(Logical == FALSE),
+    Percent  = Passing / (Passing + Failing)
+  ) %>%
+  ggplot(., aes(Criteria, Percent, fill = class)) +
+  geom_histogram(stat     = "identity",
+                 position = "dodge2") +
+  scale_y_continuous(labels = scales::percent, position = "right") +
+  ylab("Percentage Passing") +
+  # scale_fill_manual(values = c("blue", "red", "green", "black", "orange"),
+  #                   labels = c("Class 1 (0.4%)",
+  #                              "Class 2 (49.1%)",
+  #                              "Class 3 (30.1%)",
+  #                              "Class 4 (4.2%)",
+  #                              "Class 5 (16.2%)")) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow  = 2,
+                             byrow = TRUE)) +
+  labs(fill = "Class")
+
+grid.arrange(p1, p2, ncol = 2)
+
+gmm7$pprob %>%
+  merge(., passing.200) %>%
+  select(-c(prob1:prob7), -JBAny_200) %>%
+  mutate(class = as.factor(class)) %>%
+  gather(Criteria, Logical, -Subject, -class) %>%
+  group_by(class, Criteria) %>%
+  summarise(
+    Passing  = sum(Logical == TRUE),
+    Failing  = sum(Logical == FALSE),
+    Percent  = Passing / (Passing + Failing),
+    Total    = n()
+  ) %>%
+  write.csv(., file = "counts200.csv")
+
+# gmm7$pprob %>%
+#   group_by(class) %>%
+#   summarise(Count = n())
+
+save.image("lesserDataAmount.RData")
+
+```
+
+## High Magnitude Section
+
+```{r setup40k, cache=TRUE, echo=FALSE}
+data <- read.csv("unrestricted_shawnpgilroy_2_14_2021_10_59_54.csv")
+
+data.select <- data %>%
+  filter(!is.na(DDisc_SV_1mo_200)) %>%
+  select(Subject, DDisc_SV_1mo_200:DDisc_AUC_40K)
+
+##### Re-map source data (raw) to long format
+sourceData.long.40k <- data.select %>%
+  select(Subject,
+         DDisc_AUC_40K,
+         DDisc_SV_1mo_40K:DDisc_SV_10yr_40K) %>%
+  gather(Delay, Value, DDisc_SV_1mo_40K:DDisc_SV_10yr_40K,
+         -Subject, -DDisc_AUC_40K) %>%
+  mutate(
+    Delay = case_when(
+      stringr::str_detect(Delay, "1mo" ) ~ "30",
+      stringr::str_detect(Delay, "6mo" ) ~ "180",
+      stringr::str_detect(Delay, "1yr" ) ~ "365",
+      stringr::str_detect(Delay, "3yr" ) ~ as.character(365 * 3),
+      stringr::str_detect(Delay, "5yr" ) ~ as.character(365 * 5),
+      stringr::str_detect(Delay, "10yr") ~ as.character(365 * 10),
+      TRUE ~ Delay
+    ),
+    Delay = as.numeric(Delay)
+  )
+
+##### Draw up passing ids
+passing.40k <- sourceData.long.40k %>%
+  select(Subject, Delay, Value) %>%
+  rename(X = Delay,
+         Y = Value) %>%
+  johnsonBickelScreen(., id = 'Subject', yMax = 40000) %>%
+  rename(`JB1_40k` = C1,
+         `JB2_40k` = C2) %>%
+  mutate(`JBAny_40k` = ifelse(JB1_40k | JB2_40k, TRUE, FALSE),
+         `JBBoth_40k` = ifelse(JB1_40k & JB2_40k, TRUE, FALSE)) %>%
+  rename(Subject = id)
+
+sourceData.long.40k.pull <- sourceData.long.40k %>%
+  select(Subject, Delay, Value) %>%
+  arrange(Subject, Delay)
+
+```
+
+```{r lcmms40k, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+
+sourceData.long.40k.pull$Value = sourceData.long.40k.pull$Value/200
+
+gmm1 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random  = ~ 1 + Delay,
+             ng      = 1,
+             data    = sourceData.long.40k.pull,
+             link    = "linear")
+
+gmm2 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 2,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm3 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 3,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm4 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 4,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm5 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 5,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm6 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~ 1 + Delay,
+             ng = 6,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm7 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 7,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm8 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 8,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm9 <- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 9,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm10<- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 10,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+gmm11<- lcmm(Value ~ Delay,
+             subject = "Subject",
+             random = ~1 + Delay,
+             ng = 11,
+             data = sourceData.long.40k.pull,
+             B = gmm1,
+             mixture = ~ Delay,
+             link    = "linear")
+
+summarytable(gmm1, gmm2, gmm3, gmm4, gmm5, gmm6, gmm7, gmm8, gmm9, gmm10, gmm11,
+             which = c("G", "AIC", "BIC", "SABIC", "entropy"))
+
+# summary(gmm6)
+
+```
+
+```{r jb40k}
+
+passing.40k %>%
+  select(-c(Subject, JBBoth_40k)) %>%
+  group_by(JB1_40k, JB2_40k) %>%
+  summarise(
+    Count = n(),
+    Total = length(unique(passing.40k$Subject))
+  )
+
+```
+
+```{r lcmm40kPlot, fig.width=9, fig.height=6, warning=FALSE, message=FALSE, echo=FALSE}
+
+
+
+pred = predictY(gmm6, newdata = sourceData.long.200.pull)
+
+Dels = c(30, 180, 365, 
+         (365 * 3), 
+         (365 * 5),
+         (365 * 10))
+
+preDF1 = data.frame(
+  ID    = pred$times,
+  Class = "1",
+  Y     = pred$pred[,1],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF2 = data.frame(
+  ID    = pred$times,
+  Class = "2",
+  Y     = pred$pred[,2],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF3 = data.frame(
+  ID    = pred$times,
+  Class = "3",
+  Y     = pred$pred[,3],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF4 = data.frame(
+  ID    = pred$times,
+  Class = "4",
+  Y     = pred$pred[,4],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF5 = data.frame(
+  ID    = pred$times,
+  Class = "5",
+  Y     = pred$pred[,5],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+preDF6 = data.frame(
+  ID    = pred$times,
+  Class = "6",
+  Y     = pred$pred[,6],
+  Time  = rep(Dels, times = length(unique(pred$times)))
+)
+
+plotDF = rbind(preDF1, preDF2, preDF3,
+               preDF4, preDF5, preDF6)
+
+plotDF$Y = plotDF$Y*200
+
+p1 = ggplot(plotDF, aes(Time, Y, color = Class)) +
+  geom_point() +
+  geom_line() +
+  #scale_x_log10() +
+  #scale_y_log10() +
+  ylab("Indifference Points") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.position = "bottom") +
+  guides(color = guide_legend(nrow  = 2, byrow = TRUE))
+
+p2 = gmm6$pprob %>%
+  select(Subject, class) %>%
+  merge(., passing.40k) %>%
+  #select(-c(prob1:prob6), -JBAny_200) %>%
+  mutate(class = as.factor(class)) %>%
+  gather(Criteria, Logical, -Subject, -class) %>%
+  group_by(class, Criteria) %>%
+  summarise(
+    Passing  = sum(Logical == TRUE),
+    Failing  = sum(Logical == FALSE),
+    Percent  = Passing / (Passing + Failing)
+  ) %>%
+  ggplot(., aes(Criteria, Percent, fill = class)) +
+  geom_histogram(stat     = "identity",
+                 position = "dodge2") +
+  scale_y_continuous(labels = scales::percent, position = "right") +
+  ylab("Percentage Passing") +
+  # scale_fill_manual(values = c("blue", "red", "green", "black", "orange"),
+  #                   labels = c("Class 1 (0.4%)",
+  #                              "Class 2 (49.1%)",
+  #                              "Class 3 (30.1%)",
+  #                              "Class 4 (4.2%)",
+  #                              "Class 5 (16.2%)")) +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow  = 2,
+                             byrow = TRUE)) +
+  labs(fill = "Class")
+
+grid.arrange(p1, p2, ncol = 2)
+
+gmm6$pprob %>%
+  merge(., passing.40k) %>%
+  mutate(class = as.factor(class)) %>%
+  gather(Criteria, Logical, -Subject, -class) %>%
+  group_by(class, Criteria) %>%
+  summarise(
+    Passing  = sum(Logical == TRUE),
+    Failing  = sum(Logical == FALSE),
+    Percent  = Passing / (Passing + Failing),
+    Total    = n()
+  ) %>%
+  write.csv(., file = "counts40000.csv")
+
+save.image("greaterDataAmount.RData")
+```
