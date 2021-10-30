@@ -3,3 +3,6 @@
 .RData
 .Ruserdata
 *.csv
+plots/*
+Analyses_files/*
+Analyses_cache/*
